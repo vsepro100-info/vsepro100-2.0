@@ -62,6 +62,9 @@ final class Bootstrap
 
         if ($result['ok']) {
             do_action('duplication/module_registered', ['module' => $moduleSlug]);
+            $this->activateModule($moduleSlug);
+
+            return $this->getModuleStatus($moduleSlug);
         }
 
         return $result;

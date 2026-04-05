@@ -10,6 +10,7 @@
 - реестр модулей;
 - статусная модель модулей;
 - проверка зависимостей модулей;
+- lifecycle-активация внешних модулей через ядро (register → dependency check → boot callback → active/failed);
 - системная диагностика по зарегистрированным модулям;
 - системный admin shell (только root/modules/diagnostics).
 
@@ -50,6 +51,18 @@
 - `duplication/module_registered`
 - `duplication/module_booted`
 - `duplication/module_failed`
+
+## Lifecycle contract внешних модулей
+- внешний модуль регистрируется через `duplication_core_register_module(...)`;
+- после успешной регистрации ядро автоматически запускает lifecycle активации модуля;
+- ядро проверяет зависимости (`checkModuleDependencies`);
+- ядро вызывает `boot` callback модуля (если он callable);
+- при успехе ядро переводит модуль в `active` и публикует `duplication/module_booted`;
+- при провале зависимостей или исключении в boot ядро переводит модуль в `failed`, сохраняет `reason` и публикует `duplication/module_failed`.
+
+Важно:
+- источником истины по `status` и `reason` остаётся только `duplication-core`;
+- внешние модули не должны самостоятельно публиковать `duplication/module_booted` для фиксации загрузки.
 
 ## Реализовано в этой задаче
 - Создан отдельный плагин `duplication-core`.
