@@ -112,6 +112,17 @@ function duplication_webinars_check_access(int $webinarId, int $userId): array
         ];
 }
 
+
+/**
+ * Public API: build webinar public page view model.
+ *
+ * @return array<string,mixed>|null
+ */
+function duplication_webinars_get_public_page_view(int $webinarId, int $userId): ?array
+{
+    return duplication_webinars_bootstrap()?->service()->getPublicPageViewModel($webinarId, $userId);
+}
+
 /**
  * Public API: can user enter webinar room.
  */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Duplication\Webinars\Domain;
 
+
 final class WebinarService
 {
     private WebinarRepository $repository;
@@ -51,7 +52,16 @@ final class WebinarService
             ];
         }
 
-        $pageMode = $entity['page_mode'];
+        $pageMode = (string) $entity['page_mode'];
+
+        if (! (bool) $entity['public_page_enabled']) {
+            return [
+                'allowed' => false,
+                'reason' => 'public_page_disabled',
+                'cta' => Canon::CTA_NOT_AVAILABLE,
+                'page_mode' => $pageMode,
+            ];
+        }
 
         if ($userId <= 0) {
             return [
@@ -62,36 +72,19 @@ final class WebinarService
             ];
         }
 
-        $minimumLevelCheck = $this->checkMinimumAccessLevelByCanonicalStatus($userId, (string) $entity['minimum_access_level']);
+        $accessRule = [
+            'minimum_access_level' => $this->accessLevelFromBusinessStatus((string) $entity['minimum_access_level']),
+            'female_club' => $entity['format'] === Canon::FORMAT_FEMALE_CLUB,
+        ];
 
-        if (! $minimumLevelCheck['allowed']) {
-            return [
-                'allowed' => false,
-                'reason' => $minimumLevelCheck['reason'],
-                'cta' => $this->resolveCta(false, $minimumLevelCheck['reason'], $pageMode),
-                'page_mode' => $pageMode,
-            ];
-        }
-
-        if ($entity['format'] === Canon::FORMAT_FEMALE_CLUB) {
-            $femaleCheck = duplication_access_check_female_club($userId);
-
-            if (! (bool) ($femaleCheck['allowed'] ?? false)) {
-                $reason = (string) ($femaleCheck['reason'] ?? 'access_check_failed');
-
-                return [
-                    'allowed' => false,
-                    'reason' => $reason,
-                    'cta' => $this->resolveCta(false, $reason, $pageMode),
-                    'page_mode' => $pageMode,
-                ];
-            }
-        }
+        $accessCheck = duplication_access_check($userId, $accessRule);
+        $allowed = (bool) ($accessCheck['allowed'] ?? false);
+        $reason = (string) ($accessCheck['reason'] ?? 'access_check_failed');
 
         return [
-            'allowed' => true,
-            'reason' => 'access_allowed',
-            'cta' => $this->resolveCta(true, 'access_allowed', $pageMode),
+            'allowed' => $allowed,
+            'reason' => $reason,
+            'cta' => $this->resolveCta($allowed, $reason, $pageMode),
             'page_mode' => $pageMode,
         ];
     }
@@ -105,6 +98,31 @@ final class WebinarService
         }
 
         return $access['page_mode'] === Canon::PAGE_MODE_LIVE;
+    }
+
+    /** @return array<string,mixed>|null */
+    public function getPublicPageViewModel(int $webinarId, int $userId): ?array
+    {
+        $entity = $this->repository->getById($webinarId);
+
+        if ($entity === null) {
+            return null;
+        }
+
+        $access = $this->checkAccessForUser($webinarId, $userId);
+        $canEnterRoom = $this->canEnterRoom($webinarId, $userId);
+
+        return [
+            'entity' => $entity,
+            'mode_label' => $this->resolvePageModeLabel((string) $access['page_mode']),
+            'is_public_page' => (bool) $entity['public_page_enabled'],
+            'access' => [
+                'allowed' => (bool) $access['allowed'],
+                'reason' => (string) $access['reason'],
+                'message' => $this->resolveAccessMessage((string) $access['reason']),
+            ],
+            'cta' => $this->resolveCtaView((string) $access['cta'], $entity, $canEnterRoom),
+        ];
     }
 
     private function resolveCta(bool $allowed, string $reason, string $pageMode): string
@@ -125,31 +143,84 @@ final class WebinarService
         };
     }
 
-    /**
-     * @return array{allowed:bool,reason:string}
-     */
-    private function checkMinimumAccessLevelByCanonicalStatus(int $userId, string $requiredLevel): array
+    private function accessLevelFromBusinessStatus(string $status): int
     {
-        $adminOverride = duplication_access_check_admin_override($userId);
-
-        if ((bool) ($adminOverride['allowed'] ?? false)) {
-            return ['allowed' => true, 'reason' => 'admin_override_allowed'];
-        }
-
-        $weights = [
-            'candidate' => 1,
-            'partner' => 2,
+        return match ($status) {
             'vip_partner' => 3,
-        ];
+            'partner' => 2,
+            default => 1,
+        };
+    }
 
-        $required = array_key_exists($requiredLevel, $weights) ? $requiredLevel : 'candidate';
-        $actual = duplication_access_get_business_status($userId);
-        $actualLevel = array_key_exists($actual, $weights) ? $actual : 'candidate';
+    private function resolvePageModeLabel(string $pageMode): string
+    {
+        return match ($pageMode) {
+            Canon::PAGE_MODE_LIVE => 'Live webinar page',
+            Canon::PAGE_MODE_FINISHED => 'Finished webinar page',
+            Canon::PAGE_MODE_CANCELED => 'Canceled webinar page',
+            default => 'Upcoming webinar page',
+        };
+    }
 
-        if ($weights[$actualLevel] >= $weights[$required]) {
-            return ['allowed' => true, 'reason' => 'minimum_access_level_passed'];
-        }
+    private function resolveAccessMessage(string $reason): string
+    {
+        return match ($reason) {
+            'access_allowed' => 'Access granted.',
+            'admin_override_allowed' => 'Access granted by admin override.',
+            'user_not_authenticated' => 'Log in to check and use webinar access.',
+            'minimum_access_level_not_met' => 'Access is limited by minimum_access_level.',
+            'female_club_requires_female' => 'This female_club webinar is available only for female profiles.',
+            'public_page_disabled' => 'Public page is disabled for this webinar.',
+            'webinar_not_found' => 'Webinar was not found.',
+            default => 'Access is currently unavailable.',
+        };
+    }
 
-        return ['allowed' => false, 'reason' => 'minimum_access_level_not_met'];
+    /**
+     * @param array<string,mixed> $entity
+     * @return array{code:string,label:string,url:string,enabled:bool}
+     */
+    private function resolveCtaView(string $cta, array $entity, bool $canEnterRoom): array
+    {
+        $defaultUrl = (string) ($entity['public_url'] ?? '');
+
+        return match ($cta) {
+            Canon::CTA_LOGIN_REQUIRED => [
+                'code' => Canon::CTA_LOGIN_REQUIRED,
+                'label' => 'Log in',
+                'url' => wp_login_url($defaultUrl),
+                'enabled' => true,
+            ],
+            Canon::CTA_UPGRADE_ACCESS => [
+                'code' => Canon::CTA_UPGRADE_ACCESS,
+                'label' => 'Upgrade access level',
+                'url' => '',
+                'enabled' => false,
+            ],
+            Canon::CTA_FEMALE_CLUB_ONLY => [
+                'code' => Canon::CTA_FEMALE_CLUB_ONLY,
+                'label' => 'Female club only',
+                'url' => '',
+                'enabled' => false,
+            ],
+            Canon::CTA_ENTER_ROOM => [
+                'code' => Canon::CTA_ENTER_ROOM,
+                'label' => 'Enter webinar room',
+                'url' => $canEnterRoom ? $defaultUrl . '#room' : '',
+                'enabled' => $canEnterRoom,
+            ],
+            Canon::CTA_VIEW_RECORDING => [
+                'code' => Canon::CTA_VIEW_RECORDING,
+                'label' => 'View recording',
+                'url' => $defaultUrl . '#recording',
+                'enabled' => true,
+            ],
+            default => [
+                'code' => Canon::CTA_NOT_AVAILABLE,
+                'label' => 'Not available',
+                'url' => '',
+                'enabled' => false,
+            ],
+        };
     }
 }

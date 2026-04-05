@@ -39,6 +39,7 @@ final class Bootstrap
     {
         add_action('init', [$this->repository, 'registerPostType']);
         add_action('save_post_' . $this->repository->postType(), [$this, 'onWebinarSaved'], 20, 3);
+        add_filter('single_template', [$this, 'resolveSingleTemplate']);
 
         if (is_admin()) {
             (new WebinarMetaBox($this->repository))->registerHooks();
@@ -81,5 +82,16 @@ final class Bootstrap
         }
 
         update_post_meta($postId, '_dp_webinar_previous_status', $currentStatus);
+    }
+
+    public function resolveSingleTemplate(string $template): string
+    {
+        if (! is_singular(Canon::POST_TYPE)) {
+            return $template;
+        }
+
+        $singleTemplate = DUPLICATION_WEBINARS_PATH . '/templates/single-webinar.php';
+
+        return file_exists($singleTemplate) ? $singleTemplate : $template;
     }
 }
