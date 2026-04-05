@@ -13,6 +13,9 @@
 - структурированные результаты проверок (`allowed`, `reason`);
 - минимальный системный admin UI.
 
+В этом шаге дополнительно реализовано админ-управление каноническими полями пользователя
+в профиле WordPress (`user-edit.php`, `profile.php`) без выхода за рамки access-layer.
+
 ## Структура модуля
 - `plugins/duplication-access/duplication-access.php` — главный файл плагина и публичные точки входа.
 - `plugins/duplication-access/includes/Autoloader.php` — автозагрузка namespace `Duplication\Access\`.
@@ -76,12 +79,42 @@
 - `duplication/user_registered`
 - `user_register` (WordPress lifecycle hook)
 
+## Административное управление пользователем (этот шаг)
+
+Где управляется:
+- в карточке пользователя WordPress (`Пользователи → Все пользователи → Редактировать`).
+- в собственном профиле администратора (`Пользователи → Профиль`).
+
+Что показывается в блоке `Duplication Access`:
+- текущий `dp_business_status`;
+- вычисленный access level (derive only из `dp_business_status`);
+- текущий `dp_gender`;
+- служебная пометка `admin_override` для пользователя (`enabled` / `not_enabled` + reason).
+
+Что редактируется:
+- `dp_business_status` (только `candidate`, `partner`, `vip_partner`);
+- `dp_gender` (только `male`, `female`, `unknown`).
+
+Ключевые правила:
+- уровень доступа не хранится отдельным meta key;
+- уровень каждый раз вычисляется через каноническое соответствие status→level;
+- изменения выполняются через канонические методы `AccessService::setBusinessStatus()` и `AccessService::setGender()`;
+- альтернативные meta key не создаются.
+
+События при изменении через админку:
+- `duplication/business_status_changed` при фактической смене `dp_business_status`;
+- `duplication/user_gender_changed` при фактической смене `dp_gender`.
+
 ## Реализовано в этой задаче
 - Базовый рабочий каркас domain-layer модуля `duplication-access`.
 - Подключение к `duplication-core` через проверку зависимости и регистрацию.
 - Базовый service layer для status/gender/access-level и access-check.
 - Структурированные access-ответы (`allowed`, `reason`).
 - Минимальный системный admin UI для каноники и настройки `admin_override` ролей.
+- Админ-управление `dp_business_status` и `dp_gender` в карточке пользователя.
+- Отображение вычисленного access level без отдельного meta key.
+- Отображение служебной пометки `admin_override` для пользователя.
+- Публикация канонических событий изменения статуса/пола через access-сервис.
 
 ## Не реализовано в этой задаче
 - `duplication-webinars`
