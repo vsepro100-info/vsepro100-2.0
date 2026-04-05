@@ -46,6 +46,7 @@ final class WebinarMetaBox
         $sourceValue = $this->repository->getSourceValue((int) $post->ID);
         $publicPageEnabled = $this->repository->isPublicPageEnabled((int) $post->ID);
         $pageMode = $this->repository->getPageMode((int) $post->ID);
+        $publicUrl = get_permalink((int) $post->ID) ?: '';
 
         echo '<table class="form-table" role="presentation">';
 
@@ -88,6 +89,11 @@ final class WebinarMetaBox
 
         echo '<tr><th><label for="dp_webinar_public_page_enabled">public_webinar_page</label></th><td>';
         echo '<label><input type="checkbox" name="dp_webinar_public_page_enabled" id="dp_webinar_public_page_enabled" value="1"' . checked($publicPageEnabled, true, false) . '> Enabled</label>';
+        echo '</td></tr>';
+
+        echo '<tr><th><label for="dp_webinar_public_url">public_webinar_page_url</label></th><td>';
+        echo '<input type="url" class="large-text" id="dp_webinar_public_url" value="' . esc_attr($publicUrl) . '" readonly>';
+        echo '<p class="description">Canonical URL of webinar entity. webinar_room is rendered as page_mode on this URL.</p>';
         echo '</td></tr>';
 
         echo '<tr><th><label for="dp_webinar_page_mode">page_mode</label></th><td>';

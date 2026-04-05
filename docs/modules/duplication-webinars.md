@@ -3,24 +3,26 @@
 ## Назначение
 `duplication-webinars` — продуктовый модуль вебинаров платформы WordPress 2.0.
 
-В рамках этого шага реализован только базовый каркас product-module:
+В рамках этого шага реализован базовый продуктовый шаг по `public_webinar_page` и server-side `page_mode`:
 - отдельный плагин;
 - безопасная загрузка;
 - зависимость от `duplication-core` и `duplication-access`;
 - регистрация модуля в `duplication-core`;
 - каноника webinar-сущности;
 - хранение webinar как `custom post type` + `post meta`;
-- базовый service layer webinar/page_mode/access/cta/room-entry;
+- service layer webinar/page_mode/access/cta/room-entry;
+- server-side рендеринг single webinar на каноническом URL сущности;
 - минимальный admin UI для системного управления webinar.
 
 ## Структура модуля
 - `plugins/duplication-webinars/duplication-webinars.php` — главный файл плагина и публичные точки входа.
 - `plugins/duplication-webinars/includes/Autoloader.php` — автозагрузка namespace `Duplication\Webinars\`.
-- `plugins/duplication-webinars/src/Bootstrap.php` — bootstrap, регистрация в core, базовые product-события.
+- `plugins/duplication-webinars/src/Bootstrap.php` — bootstrap, регистрация в core, product-события, подключение single-template.
 - `plugins/duplication-webinars/src/Domain/Canon.php` — каноника webinar entity, форматов, состояний, источников, page mode, meta keys.
 - `plugins/duplication-webinars/src/Domain/WebinarRepository.php` — CPT `webinar` + хранение/чтение canonical post meta.
-- `plugins/duplication-webinars/src/Domain/WebinarService.php` — сервис слоя получения webinar/access/page_mode/cta/room-entry.
+- `plugins/duplication-webinars/src/Domain/WebinarService.php` — сервис слоя получения webinar/access/page_mode/cta/room-entry + view model публичной страницы.
 - `plugins/duplication-webinars/src/Admin/WebinarMetaBox.php` — минимальный admin UI для редактирования webinar-сущности.
+- `plugins/duplication-webinars/templates/single-webinar.php` — server-side шаблон канонической публичной страницы webinar.
 
 ## Зависимости
 `duplication-webinars` запускается только если доступны и активны:
@@ -69,6 +71,35 @@
 `public_webinar_page` фиксирован как один постоянный URL webinar-поста.
 `webinar_room` трактуется как режим (`page_mode`) этой же страницы, а не отдельная SEO-сущность.
 
+## Публичная страница webinar (server-side)
+Публичная страница рендерится на single URL webinar-поста через `templates/single-webinar.php`.
+
+В этом шаге на странице выводятся только базовые блоки:
+- `title`;
+- `description/content`;
+- `status`;
+- `format`;
+- `minimum_access_level`;
+- source block (`source_type`, `source_value`);
+- `page_mode`;
+- признак `public_webinar_page`;
+- `access message` (`reason` + человеко-читаемое сообщение);
+- `CTA` (код, label, ссылка/disabled-состояние).
+
+`page_mode` влияет на контекст рендера:
+- `pre_event` — страница предстоящего вебинара;
+- `live` — страница живого вебинара;
+- `finished` — страница завершённого вебинара;
+- `canceled` — страница отменённого вебинара.
+
+## Access/CTA и room-entry
+- Access-проверка и CTA определяются только в service layer (`WebinarService`) и через `duplication-access` API.
+- Шаблон не дублирует access-логику.
+- Для `female_club` допуск определяется только через `duplication-access`.
+- Если доступ запрещён, публичная страница остаётся видимой и показывает `reason` + корректный `CTA`.
+- `room-entry` не открывается при запрете доступа; вход доступен только при `allowed=true` и `page_mode=live`.
+- Если `public_webinar_page` выключен, канонический URL сущности не меняется; в рендере это отражается как недоступность публичной страницы.
+
 ## Публичные точки входа
 - `duplication_webinars_bootstrap()`
 - `duplication_webinars_get_webinar(int $webinarId)`
@@ -77,6 +108,7 @@
 - `duplication_webinars_get_page_mode(int $webinarId)`
 - `duplication_webinars_check_access(int $webinarId, int $userId)`
 - `duplication_webinars_can_enter_room(int $webinarId, int $userId)`
+- `duplication_webinars_get_public_page_view(int $webinarId, int $userId)`
 
 ## Формат результата access-check
 Фиксированный структурированный ответ:
@@ -84,11 +116,6 @@
 - `reason`
 - `cta`
 - `page_mode`
-
-Проверки доступа выполняются через `duplication-access`:
-- обычный webinar: `minimum_access_level` как канонический business status (`candidate | partner | vip_partner`);
-- `female_club`: отдельная проверка female_club через access-layer;
-- admin_override учитывается через `duplication_access_check_admin_override()`.
 
 ## Базовые события модуля
 Публикуются события:
@@ -99,14 +126,12 @@
 - `duplication/webinar_canceled`
 
 ## Реализовано в этом шаге
-- Создан отдельный плагин `duplication-webinars`.
-- Реализован bootstrap + dependency gate (`core` + `access`).
-- Добавлена регистрация модуля в `duplication-core`.
-- Реализован `custom post type` webinar (`webinar`).
-- Реализовано canonical хранение webinar в post meta.
-- Реализован минимальный слой entity/repository/service.
-- Реализован минимальный admin UI для создания/редактирования webinar-сущности.
-- Реализован базовый server-side access-check с результатом `allowed/reason/cta/page_mode`.
+- Канонический `single webinar` URL работает как `public_webinar_page` сущности.
+- `webinar_room` реализован как режим (`page_mode`) той же страницы.
+- Добавлен server-side шаблон single webinar для базовых блоков публичной страницы.
+- `page_mode` реально влияет на рендер (контекст страницы pre_event/live/finished/canceled).
+- Access message и CTA идут через service layer + `duplication-access`.
+- Admin UI дополнен отображением канонического публичного URL и полями, нужными для server-side страницы.
 
 ## Что ещё не реализовано
 - чат;
@@ -121,6 +146,7 @@
 - автостарт / автозавершение;
 - отдельная SEO-страница для room;
 - любая бизнес-логика других модулей.
+
 `dp_webinar_minimum_access_level` хранится как каноническая строка:
 - `candidate`
 - `partner`
